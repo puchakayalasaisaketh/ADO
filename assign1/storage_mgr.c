@@ -8,39 +8,50 @@
 
 #include "storage_mgr.h"
 
-FILE *pageFile;
+FILE *pageFile = NULL;
 
 extern void initStorageManager (void) {
 	// Initialising file pointer i.e. storage manager.
 	pageFile = NULL;
 }
 
-extern RC createPageFile (char *fileName) {
-	// Opening file stream in read & write mode. 'w+' mode creates an empty file for both reading and writing.
-	pageFile = fopen(fileName, "w+");
+extern RC createPageFile(char *fileName) {
+    FILE *pageFile = fopen(fileName, "w+"); // Open file in write and read mode ('w+')
 
-	// Checking if file was successfully opened.
-	if(pageFile == NULL) {
-		return RC_FILE_NOT_FOUND;
-	} else {
-		// Creating an empty page in memory.
-		SM_PageHandle emptyPage = (SM_PageHandle)calloc(PAGE_SIZE, sizeof(char));
-		
-		// Writing empty page to file.
-		if(fwrite(emptyPage, sizeof(char), PAGE_SIZE,pageFile) < PAGE_SIZE)
-			printf("write failed \n");
-		else
-			printf("write succeeded \n");
-		
-		// Closing file stream so that all the buffers are flushed. 
-		fclose(pageFile);
-		
-		// De-allocating the memory previously allocated to 'emptyPage'.
-		// This is optional but always better to do for proper memory management.
-		free(emptyPage);
-		
-		return RC_OK;
-	}
+    if (pageFile == NULL) {
+        // Handle file opening failure.
+        return RC_FILE_NOT_FOUND;
+    }
+
+    // Creating an empty page in memory.
+    SM_PageHandle emptyPage = (SM_PageHandle)malloc(PAGE_SIZE);
+
+    if (emptyPage == NULL) {
+        // Handle memory allocation failure.
+        fclose(pageFile); // Close the file before returning.
+        return RC_MALLOC_FAILED;
+    }
+
+    // Initialize the empty page with zeroes.
+    memset(emptyPage, 0, PAGE_SIZE);
+
+    // Write the empty page to the file.
+    size_t writeResult = fwrite(emptyPage, sizeof(char), PAGE_SIZE, pageFile);
+
+    if (writeResult < PAGE_SIZE) {
+        printf("Write failed\n");S
+        free(emptyPage); // Free allocated memory.
+        fclose(pageFile); // Close the file.
+        return RC_WRITE_FAILED;
+    } else {
+        printf("Write succeeded\n");
+    }
+
+    // Close the file and free allocated memory.
+    fclose(pageFile);
+    free(emptyPage);
+
+    return RC_OK;
 }
 
 extern RC openPageFile (char *fileName, SM_FileHandle *fHandle) {
