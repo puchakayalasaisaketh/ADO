@@ -8,264 +8,261 @@
 
 #include "storage_mgr.h"
 
-FILE *pageFile;
+FILE *page;
 
 extern void initStorageManager (void) {
 	// Initialising file pointer i.e. storage manager.
-	pageFile = NULL;
+	page = NULL;
 }
 
-extern RC createPageFile (char *fileName) {
-	// Opening file stream in read & write mode. 'w+' mode creates an empty file for both reading and writing.
-	pageFile = fopen(fileName, "w+");
+extern RC createPageFile(char *fileName) {
+    FILE *page = fopen(fileName, "w+"); // access mode is set to read and write i.e, "w+")
 
-	// Checking if file was successfully opened.
-	if(pageFile == NULL) {
-		return RC_FILE_NOT_FOUND;
-	} else {
-		// Creating an empty page in memory.
-		SM_PageHandle emptyPage = (SM_PageHandle)calloc(PAGE_SIZE, sizeof(char));
-		
-		// Writing empty page to file.
-		if(fwrite(emptyPage, sizeof(char), PAGE_SIZE,pageFile) < PAGE_SIZE)
-			printf("write failed \n");
-		else
-			printf("write succeeded \n");
-		
-		// Closing file stream so that all the buffers are flushed. 
-		fclose(pageFile);
-		
-		// De-allocating the memory previously allocated to 'emptyPage'.
-		// This is optional but always better to do for proper memory management.
-		free(emptyPage);
-		
-		return RC_OK;
-	}
+    if (page == NULL) {
+        // returning rc_file_not_found if file was not opened
+        return RC_FILE_NOT_FOUND;
+    }
+
+    // Creating an empty page in memory by allocating memory for it.
+    SM_PageHandle emptyPageBuffer = (SM_PageHandle)malloc(PAGE_SIZE);
+
+    if (emptyPageBuffer == NULL) {
+        // Handle memory allocation failure.
+        fclose(page); // Close the file before returning.
+        return RC_MALLOC_FAILED;
+    }
+
+    // Initialize the empty page to zero.
+    memset(emptyPageBuffer, 0, PAGE_SIZE);
+
+    
+    size_t writeResult = fwrite(emptyPageBuffer, sizeof(char), PAGE_SIZE, page) ;
+	// Write the empty page to the file.
+
+    if ( writeResult< PAGE_SIZE) {
+        printf("Write failed\n"); //print an error message if write operation is failed
+        free(emptyPageBuffer); // Free allocated memory.
+        fclose(page); // Close the file.
+        return RC_WRITE_FAILED;
+    } else {
+        printf("Write succeeded\n");  //prints success message 
+    }
+
+    // Close the page to make sure all the buffers are removed .
+    fclose(page);
+    free(emptyPageBuffer);  //deallocating the memory previously assigned to emptyPageBuffer
+
+    return RC_OK; //this indicates file is successfully created
 }
 
-extern RC openPageFile (char *fileName, SM_FileHandle *fHandle) {
-	// Opening file stream in read mode. 'r' mode creates an empty file for reading only.
-	pageFile = fopen(fileName, "r");
+extern RC openPageFile(char *fileName, SM_FileHandle *fHandle) {
+    // Attempt to open the file in read mode.
+    page = fopen(fileName, "r");
 
-	// Checking if file was successfully opened.
-	if(pageFile == NULL) {
-		return RC_FILE_NOT_FOUND;
-	} else { 
-		// Updating file handle's filename and set the current position to the start of the page.
-		fHandle->fileName = fileName;
-		fHandle->curPagePos = 0;
+    // Check if the file was not successfully opened.
+    if (page == NULL) {
+        fclose(page); // Close the file handle.
+        return RC_FILE_NOT_FOUND; // Return error: File not found.
+    }
 
-		/* In order to calculate the total size, we perform following steps -
-		   1. Move the position of the file stream to the end of file
-		   2. Check the file end position
-		   3. Move the position of the file stream to the beginning of file  
-		
-		fseek(pageFile, 0L, SEEK_END);
-		int totalSize = ftell(pageFile);
-		fseek(pageFile, 0L, SEEK_SET);
-		fHandle->totalNumPages = totalSize/ PAGE_SIZE;  */
-		
-		/* Using fstat() to get the file total size.
-		   fstat() is a system call that is used to determine information about a file based on its file descriptor.
-		   'st_size' member variable of the 'stat' structure gives the total size of the file in bytes.
-		*/
+    // Initialize the file handle values.
+    fHandle->fileName = fileName; // Set the file name.
+    fHandle->curPagePos = 0; // Set the current page position.
 
-		struct stat fileInfo;
-		if(fstat(fileno(pageFile), &fileInfo) < 0)    
-			return RC_ERROR;
-		fHandle->totalNumPages = fileInfo.st_size/ PAGE_SIZE;
+    // Retrieve file information using fstat.
+    struct stat fileInfo;
+    if (fstat(fileno(page), &fileInfo) < 0) {
+        fclose(page); // Close the file handle.
+        return RC_ERROR; // Return error: Unable to obtain file information.
+    }
 
-		// Closing file stream so that all the buffers are flushed. 
-		fclose(pageFile);
-		return RC_OK;
-	}
+    // Calculate the total number of pages based on file size and page size.
+    fHandle->totalNumPages = fileInfo.st_size / PAGE_SIZE;
+
+    // Close the file to flush any internal buffers and release resources.
+    fclose(page);
+    return RC_OK; // Return success.
 }
-
 extern RC closePageFile (SM_FileHandle *fHandle) {
-	// Checking if file pointer or the storage manager is intialised. If initialised, then close.
-	if(pageFile != NULL)
-		pageFile = NULL;	
-	return RC_OK; 
+	// checking if page is null or not.
+	if(page != NULL){
+		//assign the fhandle pointer to null to indicate it is closed.
+		fHandle->mgmtInfo =NULL; //mgmtInfo field is more modular and safer approcah because it does not rely on a global variable
+		return RC_OK;
+	}
+	else{
+		return RC_FILE_HANDLE_NOT_INIT;
+	}
 }
 
 
 extern RC destroyPageFile (char *fileName) {
-	// Opening file stream in read mode. 'r' mode creates an empty file for reading only.	
-	pageFile = fopen(fileName, "r");
+	// Opening in read mode!	
+	page = fopen(fileName, "r");
 	
-	if(pageFile == NULL)
+	if(page == NULL)
 		return RC_FILE_NOT_FOUND; 
 	
-	// Deleting the given filename so that it is no longer accessible.	
-	remove(fileName);
-	return RC_OK;
+	//closing the file stream
+	fclose(page);
+	//Remove the file from file System
+	//remove(fileName);
+	if (remove(fileName)==0)
+		return RC_OK;
+	else
+		return RC_FILE_DELETE_FAILED;
 }
-
 extern RC readBlock (int pageNum, SM_FileHandle *fHandle, SM_PageHandle memPage) {
 	// Checking if the pageNumber parameter is less than Total number of pages and less than 0, then return respective error code
-	if (pageNum > fHandle->totalNumPages || pageNum < 0)
+	if (pageNum < 0 || pageNum > fHandle->totalNumPages)
         	return RC_READ_NON_EXISTING_PAGE;
 
 	// Opening file stream in read mode. 'r' mode creates an empty file for reading only.	
-	pageFile = fopen(fHandle->fileName, "r");
+	page = fopen(fHandle->fileName, "r");
 
 	// Checking if file was successfully opened.
-	if(pageFile == NULL)
+	if(page == NULL)
 		return RC_FILE_NOT_FOUND;
 	
-	// Setting the cursor(pointer) position of the file stream. Position is calculated by Page Number x Page Size
+	// Adjusting the pointer position of the file stream. The seek operation is considered successful if fseek() returns 0; otherwise, return RC_WRITE_FAILED.
 	// And the seek is success if fseek() return 0
-	int isSeekSuccess = fseek(pageFile, (pageNum * PAGE_SIZE), SEEK_SET);
-	if(isSeekSuccess == 0) {
+	if(fseek(page, (pageNum * PAGE_SIZE), SEEK_SET) != 0) {
 		// We're reading the content and storing it in the location pointed out by memPage.
-		fread(memPage, sizeof(char), PAGE_SIZE, pageFile);
+		return RC_READ_NON_EXISTING_PAGE;
+		
 	} else {
-		return RC_READ_NON_EXISTING_PAGE; 
+		fread(memPage, sizeof(char), PAGE_SIZE, page); 
 	}
     	
-	// Setting the current page position to the cursor(pointer) position of the file stream
-	fHandle->curPagePos = ftell(pageFile); 
+	// Updating the current page position to match the pointer position of the file stream
+	fHandle->curPagePos = ftell(page); 
 	
 	// Closing file stream so that all the buffers are flushed.     	
-	fclose(pageFile);
+	fclose(page);
 	
     	return RC_OK;
 }
 
 extern int getBlockPos (SM_FileHandle *fHandle) {
-	// Returning the current page position retrieved from the file handle	
+	// we will get the current page position obtained from the file handle	
 	return fHandle->curPagePos;
 }
 
 extern RC readFirstBlock (SM_FileHandle *fHandle, SM_PageHandle memPage) {
-	// Re-directing (passing) to readBlock(...) function with pageNumber = 0 i.e. first block	
+	// calling the readBlock function with pageNumber = 0, indicating the first block.	
 	return readBlock(0, fHandle, memPage);
 }
 
 extern RC readPreviousBlock (SM_FileHandle *fHandle, SM_PageHandle memPage) {
-	//printf("CURRENT PAGE POSITION = %d \n", fHandle->curPagePos);
-	//printf("TOTAL PAGES = %d \n", fHandle->totalNumPages);
 
-	// Calculating current page number by dividing page size by current page position	
-	int currentPageNumber = fHandle->curPagePos / PAGE_SIZE;
+	// Determining the current page number by dividing the current page position by the page size.	
+	int currPageNumber = fHandle->curPagePos / PAGE_SIZE;
 
-	// Re-directing (passing) to readBlock(...) function with pageNumber = currentPagePosition - 1 i.e. previous block
-	return readBlock(currentPageNumber - 1, fHandle, memPage);
+	// Invoking the readBlock(...) function with pageNumber = currentPagePosition - 1, which corresponds to the previous block.
+	return readBlock(currPageNumber - 1, fHandle, memPage);
 }
 
 extern RC readCurrentBlock (SM_FileHandle *fHandle, SM_PageHandle memPage) {
-	// Calculating current page number by dividing page size by current page position	
-	int currentPageNumber = fHandle->curPagePos / PAGE_SIZE;
+	// Deriving the current page number by dividing the current page position by the page size	
+	int currPageNumber = fHandle->curPagePos / PAGE_SIZE;
 	
-	// Re-directing (passing) to readBlock(...) function with pageNumber = currentPagePosition i.e. current block
-	return readBlock(currentPageNumber, fHandle, memPage);
+	//calling readBlock function with pageNumber = currentPagePosition + 1, corresponding to the current block.
+	return readBlock(currPageNumber, fHandle, memPage);
 }
 
 extern RC readNextBlock (SM_FileHandle *fHandle, SM_PageHandle memPage){
-	// Calculating current page number by dividing page size by current page position	
-	int currentPageNumber = fHandle->curPagePos / PAGE_SIZE;
+	// Determining the current page number by dividing the page size by the current page position.	
+	int currPageNumber = fHandle->curPagePos / PAGE_SIZE;
 	
 	printf("CURRENT PAGE POSITION = %d \n", fHandle->curPagePos);
-	// Re-directing (passing) to readBlock(...) function with pageNumber = currentPagePosition + 1 i.e. last block
-	return readBlock(currentPageNumber + 1, fHandle, memPage);
+	// calling the readBlock function with pageNumber = currentPagePosition + 1, corresponding to the last block.
+	return readBlock(currPageNumber + 1, fHandle, memPage);
 }
 
 extern RC readLastBlock (SM_FileHandle *fHandle, SM_PageHandle memPage){
-	// Re-directing (passing) to readBlock(...) function with pageNumber = totalNumPages i.e. last block
-	// printf("TOTAL PAGES = %d \n", fHandle->totalNumPages);	
+	// calling to readBlock function with pageNumber = totalNumPages i.e. last block	
 	return readBlock(fHandle->totalNumPages - 1, fHandle, memPage);
 }
 
 extern RC writeBlock (int pageNum, SM_FileHandle *fHandle, SM_PageHandle memPage) {
-	// Checking if the pageNumber parameter is less than Total number of pages and less than 0, then return respective error code
-	if (pageNum > fHandle->totalNumPages || pageNum < 0)
+	// Verifying whether the pageNumber parameter is both less than the total number of pages and less than 0; if so, return the corresponding error code.
+	if (pageNum < 0 || pageNum > fHandle->totalNumPages)
         	return RC_WRITE_FAILED;
 	
-	// Opening file stream in read & write mode. 'r+' mode opens the file for both reading and writing.	
-	pageFile = fopen(fHandle->fileName, "r+");
+	// Opening the file stream in both read and write mode using 'r+' mode, which allows both reading and writing to the file.	
+	page = fopen(fHandle->fileName, "r+");
 	
-	// Checking if file was successfully opened.
-	if(pageFile == NULL)
+	// Verifying if the file was opened successfully; otherwise, return the RC_FILE_NOT_FOUND error.
+	if(page == NULL)
 		return RC_FILE_NOT_FOUND;
 
-	// Setting the cursor(pointer) position of the file stream. The seek is successfull if fseek() return 0
-	int isSeekSuccess = fseek(pageFile, (pageNum * PAGE_SIZE), SEEK_SET);
-	if(isSeekSuccess == 0) {
-		/*int k;
-		for(k = 0; k < PAGE_SIZE; k++) {
-			// Check after each iteration, if file is ending.
-			if(feof(pageFile)) {
-				// If we reached end of file, append an empty block at the end of file.
-				appendEmptyBlock(fHandle);
-			}
-			// Writing content from memPage to pageFile stream
-			fputc(memPage[k], pageFile);
-		}*/
+	// Adjusting the pointer(fHandle) position of the file stream. The seek operation is considered successful if fseek() returns 0; otherwise, return RC_WRITE_FAILED.
+	
+	if(fseek(page, (pageNum * PAGE_SIZE), SEEK_SET) != 0) {
+		return RC_WRITE_FAILED;	
+	} 
+	else {
+		// Copying the content from memPage to the page stream.
+		fwrite(memPage, sizeof(char), strlen(memPage), page);
 
-		// Writing content from memPage to pageFile stream
-		fwrite(memPage, sizeof(char), strlen(memPage), pageFile);
-
-		// Setting the current page position to the cursor(pointer) position of the file stream
-		fHandle->curPagePos = ftell(pageFile);
+		// Updating the current page position to match the pointer(fHandle) position of the file stream.
+		fHandle->curPagePos = ftell(page);
 		
 
-		// Closing file stream so that all the buffers are flushed.     	
-		fclose(pageFile);
-	} else {
-		return RC_WRITE_FAILED;
+		// Closing the file stream to ensure that all the buffers are flushed.   	
+		fclose(page);
+		
 	}	
 	
 	return RC_OK;
 }
 
 extern RC writeCurrentBlock (SM_FileHandle *fHandle, SM_PageHandle memPage) {
-	// Calculating current page number by dividing page size by current page position	
-	int currentPageNumber = fHandle->curPagePos / PAGE_SIZE;
+	// Determining the current page number by dividing the page size by the current page position.	
+	int currPageNumber = fHandle->curPagePos / PAGE_SIZE;
 	
-	// Incrementing total number of pages since we are adding this content to a new location as in current empty block.
+	// Increasing the total number of pages because we are adding this content to a new location, specifically in the current empty block..
 	fHandle->totalNumPages++;
-	return writeBlock(currentPageNumber, fHandle, memPage);
+	return writeBlock(currPageNumber, fHandle, memPage);
 }
 
 
 extern RC appendEmptyBlock (SM_FileHandle *fHandle) {
-	// Creating an empty page of size PAGE_SIZE bytes
+	// Generating a blank page with a size of PAGE_SIZE bytes.
 	SM_PageHandle emptyBlock = (SM_PageHandle)calloc(PAGE_SIZE, sizeof(char));
 	
-	// Moving the cursor (pointer) position to the begining of the file stream.
-	// And the seek is success if fseek() return 0
-	int isSeekSuccess = fseek(pageFile, 0, SEEK_END);
+	// Adjusting the pointer position to the beginning of the file stream.
+	// The seek operation is considered successful if fseek() returns 0.
+
 	
-	if( isSeekSuccess == 0 ) {
-		// Writing an empty page to the file
-		fwrite(emptyBlock, sizeof(char), PAGE_SIZE, pageFile);
-	} else {
+	if( fseek(page, 0, SEEK_END) != 0 ) {
 		free(emptyBlock);
 		return RC_WRITE_FAILED;
-	}
-	
-	// De-allocating the memory previously allocated to 'emptyPage'.
-	// This is optional but always better to do for proper memory management.
+		
+	} 
+	if (fwrite(emptyBlock, sizeof(char), PAGE_SIZE, page) != PAGE_SIZE) {
+        free(emptyBlock);
+        return RC_WRITE_FAILED; 
+    }
+	// Freeing the memory that was previously allocated for 'emptyPage'.
 	free(emptyBlock);
 	
-	// Incrementing the total number of pages since we added an empty black.
+	// Increasing the total number of pages since we added an empty block.
 	fHandle->totalNumPages++;
 	return RC_OK;
 }
 
 extern RC ensureCapacity (int numberOfPages, SM_FileHandle *fHandle) {
-	// Opening file stream in append mode. 'a' mode opens the file to append the data at the end of file.
-	pageFile = fopen(fHandle->fileName, "a");
-	
-	if(pageFile == NULL)
+	// Opening the file stream in append mode ('a' mode), which allows data to be appended to the end of the file.
+	if(fopen(fHandle->fileName, "a") == NULL)
 		return RC_FILE_NOT_FOUND;
 	
-	// Checking if numberOfPages is greater than totalNumPages.
-	// If that is the case, then add empty pages till numberofPages = totalNumPages
+	// Verifying if the value of numberOfPages is greater than the value of totalNumPages.
+	// If that condition is met, then add empty pages until the value of numberOfPages becomes equal to the value of totalNumPages.
 	while(numberOfPages > fHandle->totalNumPages)
 		appendEmptyBlock(fHandle);
 	
-	// Closing file stream so that all the buffers are flushed. 
-	fclose(pageFile);
+	// Closing the file stream to ensure that all buffers are flushed.
+	fclose(page);
 	return RC_OK;
 }
