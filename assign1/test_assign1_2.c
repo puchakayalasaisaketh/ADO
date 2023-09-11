@@ -7,115 +7,151 @@
 #include "dberror.h"
 #include "test_helper.h"
 
-// test name
-char *testName;
-
-/* test output files */
+// Test output file
 #define TESTPF "test_pagefile.bin"
 
-/* prototypes for test functions */
-static void testAdditionalCases(void);
+// Function prototypes
+static void testSinglePageReadWrite(void);
+static void cleanup(SM_FileHandle *fh, SM_PageHandle ph);
 
-/* main function running all tests */
-int main (void)
-{
-	testName = "";
-  
-	initStorageManager();
-	testAdditionalCases();
-
-	return 0;
+int main(void) {
+    initStorageManager();
+    testSinglePageReadWrite();
+    return 0;
 }
 
-/* Try to create, open, and close a page file */
-void testAdditionalCases(void)
-{
-	SM_FileHandle fh;
-	SM_PageHandle ph;
-	int i;
+static void cleanup(SM_FileHandle *fh, SM_PageHandle ph) {
+    free(ph);
+    closePageFile(fh);
+    destroyPageFile(TESTPF);
+}
 
-	testName = "test single page content";
+static void testSinglePageReadWrite(void) {
+    char *testName = "Test Single Page Read/Write";
+    SM_FileHandle fh;
+    SM_PageHandle ph;
+    int i;
 
-	ph = (SM_PageHandle) malloc(PAGE_SIZE);
+    ph = (SM_PageHandle)malloc(PAGE_SIZE);
 
-	// create a new page file
-	TEST_CHECK(createPageFile (TESTPF));
-	TEST_CHECK(openPageFile (TESTPF, &fh));
-	printf("created and opened file\n");
-  
-	// read first page into handle
-	TEST_CHECK(readFirstBlock (&fh, ph));
-	// the page should be empty (zero bytes)
-  
-	for (i=0; i < PAGE_SIZE; i++)		
-		ASSERT_TRUE((ph[i] == 0), "expected zero byte in first page of freshly initialized page");
+    if (ph == NULL) {
+        printf("Memory allocation failed.\n");
+        return;
+    }
 
-	printf("first block was empty\n");
+    // Create a new page file
+    if (createPageFile(TESTPF) != RC_OK) {
+        printf("Failed to create page file.\n");
+        cleanup(&fh, ph);
+        return;
+    }
 
-	// change ph to be a string and write that one to disk
-	for (i=0; i < PAGE_SIZE; i++)
-		ph[i] = (i % 10) + '0';
-	
-	// Writing string ph to first page of file.
-	TEST_CHECK(writeBlock(0, &fh, ph));
-	printf("writing first block successful \n");
-  
-  	// Writing string ph to current position of file.
-  	TEST_CHECK(writeCurrentBlock(&fh, ph));
-  	printf("write current block \n");
-  
-  	// Writing string ph to first page of file.
-  	TEST_CHECK(writeBlock(1, &fh, ph));
-  	printf("write in second block \n");
+    // Open the page file
+    if (openPageFile(TESTPF, &fh) != RC_OK) {
+        printf("Failed to open page file.\n");
+        cleanup(&fh, ph);
+        return;
+    }
 
- 	// Writing string ph to current position of file.
-  	TEST_CHECK(writeCurrentBlock(&fh, ph));
-  	printf("write current block \n");
+    // Read the first page into the handle
+    if (readFirstBlock(&fh, ph) != RC_OK) {
+        printf("Failed to read the first block.\n");
+        cleanup(&fh, ph);
+        return;
+    }
 
-	// Writing string ph to fourth page of file.
-	TEST_CHECK(writeBlock(3, &fh, ph))
-  	printf("write in fourth block \n");
+    // Ensure the page is empty (zero bytes)
+    for (i = 0; i < PAGE_SIZE; i++) {
+        ASSERT_TRUE((ph[i] == 0), "Expected zero byte in the first page of a freshly initialized page");
+    }
 
+    printf("The first block was empty\n");
 
-  	// Reading the content of the page containing the string and checking whether it is correct
-  	TEST_CHECK(readFirstBlock (&fh, ph));
-  	for (i=0; i < PAGE_SIZE; i++)
-    		ASSERT_TRUE((ph[i] == (i % 10) + '0'), "character in page read from disk is the one we expected.");
-  	printf("reading first block \n");
+    // Fill the page with a pattern and write it to disk
+    for (i = 0; i < PAGE_SIZE; i++) {
+        ph[i] = (i % 10) + '0';
+    }
 
-  	// Reading the previous block from file.
-  	TEST_CHECK(readPreviousBlock (&fh, ph));
-  	for (i=0; i < PAGE_SIZE; i++)
-    		ASSERT_TRUE((ph[i] == (i % 10) + '0'), "character in page read from disk is the one we expected.");
-  	printf("reading previous block\n");
+    // Write the string ph to various blocks of the file
+    if (writeBlock(0, &fh, ph) != RC_OK ||
+        writeCurrentBlock(&fh, ph) != RC_OK ||
+        writeBlock(1, &fh, ph) != RC_OK ||
+        writeCurrentBlock(&fh, ph) != RC_OK ||
+        writeBlock(3, &fh, ph) != RC_OK) {
+        printf("Failed to write blocks.\n");
+        cleanup(&fh, ph);
+        return;
+    }
 
-	// Reading the next block from file.
-  	TEST_CHECK(readNextBlock (&fh, ph));
-  	for (i=0; i < PAGE_SIZE; i++)
-    		ASSERT_TRUE((ph[i] == (i % 10) + '0'), "character in page read from disk is the one we expected.");
-  	printf("reading Next block\n");
-  
-  	// Reading the current block from file.
-  	TEST_CHECK(readCurrentBlock (&fh, ph));
-  	for (i=0; i < PAGE_SIZE; i++)
-    		ASSERT_TRUE((ph[i] == (i % 10) + '0'), "character in page read from disk is the one we expected.");
-  	printf("reading Current block\n");
-  
-  	// Reading the specific block (2nd block in this case) from file.	
-  	TEST_CHECK(readBlock(2,&fh, ph));
-  	for (i=0; i < PAGE_SIZE; i++)
-    		ASSERT_TRUE((ph[i] == (i % 10) + '0'), "character in page read from disk is the one we expected.");
+    // Read and verify the content of the written blocks
+    if (readFirstBlock(&fh, ph) != RC_OK) {
+        printf("Failed to read the first block.\n");
+        cleanup(&fh, ph);
+        return;
+    }
 
-  	// Reading the last block from file.
-  	TEST_CHECK(readLastBlock (&fh, ph));
-  	for (i=0; i < PAGE_SIZE; i++)
-    		ASSERT_TRUE((ph[i] == (i % 10) + '0'), "character in page read from disk is the one we expected.");
- 
-  	// Testing ensureCapacity function.
-  	TEST_CHECK(ensureCapacity(6,&fh));
-  
-  	// Destroy new page file
-  	TEST_CHECK(destroyPageFile (TESTPF));  
- 
-  	TEST_DONE();
+    for (i = 0; i < PAGE_SIZE; i++) {
+        ASSERT_TRUE((ph[i] == (i % 10) + '0'), "Character in the page read from disk is the one we expected.");
+    }
+
+    if (readPreviousBlock(&fh, ph) != RC_OK) {
+        printf("Failed to read the previous block.\n");
+        cleanup(&fh, ph);
+        return;
+    }
+
+    for (i = 0; i < PAGE_SIZE; i++) {
+        ASSERT_TRUE((ph[i] == (i % 10) + '0'), "Character in the page read from disk is the one we expected.");
+    }
+
+    if (readNextBlock(&fh, ph) != RC_OK) {
+        printf("Failed to read the next block.\n");
+        cleanup(&fh, ph);
+        return;
+    }
+
+    for (i = 0; i < PAGE_SIZE; i++) {
+        ASSERT_TRUE((ph[i] == (i % 10) + '0'), "Character in the page read from disk is the one we expected.");
+    }
+
+    if (readCurrentBlock(&fh, ph) != RC_OK) {
+        printf("Failed to read the current block.\n");
+        cleanup(&fh, ph);
+        return;
+    }
+
+    for (i = 0; i < PAGE_SIZE; i++) {
+        ASSERT_TRUE((ph[i] == (i % 10) + '0'), "Character in the page read from disk is the one we expected.");
+    }
+
+    if (readBlock(2, &fh, ph) != RC_OK) {
+        printf("Failed to read the specified block.\n");
+        cleanup(&fh, ph);
+        return;
+    }
+
+    for (i = 0; i < PAGE_SIZE; i++) {
+        ASSERT_TRUE((ph[i] == (i % 10) + '0'), "Character in the page read from disk is the one we expected.");
+    }
+
+    if (readLastBlock(&fh, ph) != RC_OK) {
+        printf("Failed to read the last block.\n");
+        cleanup(&fh, ph);
+        return;
+    }
+
+    for (i = 0; i < PAGE_SIZE; i++) {
+        ASSERT_TRUE((ph[i] == (i % 10) + '0'), "Character in the page read from disk is the one we expected.");
+    }
+
+    // Test ensureCapacity function
+    if (ensureCapacity(6, &fh) != RC_OK) {
+        printf("Failed to ensure capacity.\n");
+        cleanup(&fh, ph);
+        return;
+    }
+
+    cleanup(&fh, ph);
+    printf("%s completed successfully.\n", testName);
+    TEST_DONE();
 }
