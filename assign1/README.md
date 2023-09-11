@@ -37,12 +37,8 @@ RUNNING THE SCRIPT
 
 SOLUTION DESCRIPTION
 ==========================
-MakeFile was made using the following tutorial -
-http://mrbook.org/blog/tutorials/make/
 
-We have implemented effective memory management in our storage manager, which includes closing the file stream when necessary and releasing any allocated memory space.
-
-
+This assignment aims to develop a straightforward storage manager, functioning as a module with the capacity to retrieve data blocks from a disk file and transfer data blocks from memory to the same disk file. The primary objective is to create an efficient and reliable mechanism for handling data storage operations, facilitating seamless data exchange between memory and persistent storage on disk.
 
 1. FILE RELATED FUNCTIONS
 ===========================
